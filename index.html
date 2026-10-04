@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="id" class="scroll-smooth">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Survei Kebutuhan IAT</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: { sans: ["Plus Jakarta Sans", "Inter", "sans-serif"] },
+            keyframes: {
+              fadeInUp: { "0%": { opacity: "0", transform: "translateY(12px)" }, "100%": { opacity: "1", transform: "translateY(0)" } },
+              float: { "0%,100%": { transform: "translateY(0)" }, "50%": { transform: "translateY(-10px)" } },
+            },
+            animation: { fadeInUp: "fadeInUp .35s cubic-bezier(.16,1,.3,1) forwards", float: "float 6s ease-in-out infinite" },
+          },
+        },
+      };
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  </head>
+  <body class="bg-[#f4f8f6] text-slate-700 antialiased min-h-screen pt-40 pb-12 px-4 sm:px-6 lg:px-8 selection:bg-emerald-200 relative overflow-x-hidden">
+    <div class="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-96 pointer-events-none -z-10 overflow-hidden">
+      <div class="absolute -top-20 left-10 w-96 h-96 bg-emerald-300/30 rounded-full blur-3xl animate-float"></div>
+      <div class="absolute top-20 right-10 w-80 h-80 bg-teal-200/40 rounded-full blur-3xl animate-float" style="animation-delay: -3s"></div>
+    </div>
+
+    <div class="fixed top-4 left-4 right-4 sm:left-1/2 sm:-translate-x-1/2 sm:w-full sm:max-w-xl z-50">
+      <div class="bg-white/90 backdrop-blur-2xl border border-emerald-200/80 rounded-3xl p-4 sm:p-5 shadow-2xl shadow-emerald-950/10 ring-1 ring-black/5 space-y-4">
+        <div id="nodes" class="relative flex items-center justify-between px-3">
+          <div class="absolute top-1/2 left-6 right-6 -translate-y-1/2 h-1 bg-slate-200 rounded-full"></div>
+          <div id="line" class="absolute top-1/2 left-6 -translate-y-1/2 h-1 bg-emerald-500 rounded-full transition-all duration-300" style="width: 0%"></div>
+        </div>
+        <div class="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 px-1">
+          <div class="flex items-center gap-2 min-w-0">
+            <span class="w-2 h-2 shrink-0 rounded-full bg-emerald-500 animate-ping"></span>
+            <span id="title" class="text-xs sm:text-sm font-bold text-slate-800 truncate">Memuat...</span>
+          </div>
+          <div class="flex items-center gap-1 bg-emerald-50 text-emerald-800 px-3 py-1 rounded-xl border border-emerald-200/60 shrink-0">
+            <span class="text-[10px] uppercase font-extrabold tracking-wider text-emerald-600">Progres:</span>
+            <span id="pct" class="text-xs sm:text-sm font-extrabold font-mono">0%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="max-w-xl mx-auto">
+      <div id="card" class="bg-white/80 backdrop-blur-md rounded-3xl p-6 sm:p-8 shadow-xl shadow-emerald-900/5 border border-emerald-100/80">
+        <p class="text-sm text-slate-500 text-center py-10">Memuat pertanyaan dari server...</p>
+      </div>
+      <div id="err" class="hidden mt-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-sm p-4"></div>
+      <div id="nav" class="hidden flex items-center justify-between gap-3 pt-5">
+        <button type="button" id="prev" class="px-6 py-3.5 rounded-2xl border border-slate-200 bg-white font-bold text-slate-600 hover:bg-slate-50 text-sm">&larr; Kembali</button>
+        <button
+          type="button"
+          id="next"
+          disabled
+          class="ml-auto px-8 py-3.5 rounded-2xl font-bold text-white text-sm disabled:opacity-40 disabled:cursor-not-allowed disabled:bg-slate-400 disabled:shadow-none bg-gradient-to-r from-emerald-600 to-teal-600 shadow-lg shadow-emerald-600/25 hover:-translate-y-0.5"
+        >
+          Lanjut &rarr;
+        </button>
+      </div>
+      <p class="text-center text-xs text-slate-400 mt-8">&copy; 2026 Sistem Survei Terpadu. Data Anda tersimpan secara aman.</p>
+    </div>
+
+    <script>
+      // ====== KONFIGURASI: tempel URL Web App Apps Script (yang berakhiran /exec) ======
+      const API_URL = "https://script.google.com/macros/s/AKfycbyxPBKGgwpfxB-4ugfuUrD4ZxUF3yl1iAJ2FO87ErDoHBK2NoNKn3xdZA1BDDOeiKdH/exec";
+      const API_KEY = ""; // isi jika di Apps Script sudah dibuat API key
+
+      const $ = (id) => document.getElementById(id);
+      const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+      const LAIN = "Lainnya";
+      let steps = [],
+        cur = 0,
+        sending = false;
+      const ans = {},
+        other = {}; // ans[id] = string | array ; other[id] = teks "Lainnya"
+
+      // ---------- ambil data dari Google Sheet ----------
+      async function load() {
+        try {
+          if (API_URL.startsWith("PASTE")) throw new Error("API_URL belum diisi. Tempel URL Web App Apps Script di bagian konfigurasi.");
+          const r = await fetch(`${API_URL}?action=schema${API_KEY ? "&key=" + encodeURIComponent(API_KEY) : ""}`);
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || "Gagal memuat soal.");
+          steps = group(j.data.soal);
+          if (!steps.length) throw new Error("Belum ada soal di sheet.");
+          buildNodes();
+          render();
+          $("nav").classList.remove("hidden");
+        } catch (e) {
+          $("card").innerHTML = `<div class="text-center py-8 space-y-4"><p class="text-sm font-semibold text-rose-600">${esc(e.message)}</p>
+      <button onclick="location.reload()" class="px-5 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold">Coba lagi</button></div>`;
+          $("title").textContent = "Gagal memuat";
+        }
+      }
+
+      // satu langkah = kumpulan soal berurutan dengan kategori sama
+      function group(soal) {
+        const out = [];
+        soal.forEach((q) => {
+          const last = out[out.length - 1];
+          if (last && last.section === q.kategori) last.items.push(q);
+          else out.push({ section: q.kategori, items: [q] });
+        });
+        return out;
+      }
+
+      // ---------- stepper ----------
+      function buildNodes() {
+        const sm = steps.length > 7;
+        steps.forEach((_, i) => {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.id = "n" + i;
+          b.textContent = i + 1;
+          b.dataset.sm = sm ? 1 : 0;
+          b.onclick = () => goTo(i);
+          $("nodes").appendChild(b);
+        });
+      }
+
+      // ---------- render ----------
+      const inCls = "survey-input w-full bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 focus:bg-white focus:ring-2 focus:ring-emerald-200 p-3 outline-none";
+
+      function optHtml(q, val, label, type) {
+        const name = "q" + q.id,
+          a = ans[q.id];
+        const on = Array.isArray(a) ? a.includes(val) : a === val;
+        const ch = on ? "checked" : "";
+        const base = `<input type="${type}" name="${name}" value="${esc(val)}" data-q="${q.id}" data-k="opt" ${ch}`;
+        if (q.type === "skala_likert") {
+          return `<label class="flex items-center justify-center p-3 rounded-2xl border border-slate-200 bg-white cursor-pointer text-center text-xs font-semibold has-[:checked]:bg-emerald-600 has-[:checked]:text-white has-[:checked]:border-emerald-600 transition-all">${base} class="sr-only"><span>${esc(label)}</span></label>`;
+        }
+        const box = `${base} class="w-5 h-5 ${type === "checkbox" ? "rounded-md " : ""}accent-emerald-600 cursor-pointer">`;
+        if (val === LAIN) {
+          return `<div class="group rounded-2xl border border-slate-200/80 bg-white hover:border-emerald-300">
+      <label class="flex items-center p-4 cursor-pointer">${box}<span class="ml-3.5 text-sm font-semibold">${esc(label)}</span></label>
+      <div class="${on ? "block" : "hidden"} group-has-[:checked]:block px-4 pb-4 pt-1"><input type="text" data-q="${q.id}" data-k="other" value="${esc(other[q.id] || "")}" placeholder="Tuliskan jawaban lainnya..." class="${inCls}"></div></div>`;
+        }
+        return `<label class="flex items-center p-4 rounded-2xl border border-slate-200/80 bg-white cursor-pointer hover:border-emerald-300 hover:bg-emerald-50/20">${box}<span class="ml-3.5 text-sm font-semibold">${esc(label)}</span></label>`;
+      }
+
+      function qHtml(q) {
+        const multi = q.bolehPilihLebihDariSatu;
+        let sub = "";
+        if (multi) sub = q.maksimalPilihan ? `(Pilih maksimal ${q.maksimalPilihan})` : "(Boleh memilih lebih dari satu)";
+        let body = "";
+        if (q.type === "isian") {
+          body = `<textarea rows="3" data-q="${q.id}" data-k="text" placeholder="Tuliskan jawaban Anda di sini..." class="survey-input w-full bg-white border border-slate-200 rounded-2xl text-sm p-4 outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100 resize-y min-h-[100px]">${esc(ans[q.id] || "")}</textarea>`;
+        } else if (q.type === "skala_likert") {
+          body = `<div class="grid grid-cols-1 sm:grid-cols-5 gap-2">${q.opsiPilihanGanda.map((o) => optHtml(q, o, o, "radio")).join("")}</div>`;
+        } else {
+          const opts = q.opsiPilihanGanda.slice();
+          if (q.adaOpsiLainLain) opts.push(LAIN);
+          body = `<div class="space-y-3">${opts.map((o) => optHtml(q, o, o, multi ? "checkbox" : "radio")).join("")}</div>`;
+        }
+        return `<section class="py-5 first:pt-0 border-b border-slate-100 last:border-0 last:pb-0">
+    <h2 class="text-base font-bold text-slate-800 mb-1">${q.id}. ${esc(q.soal)}${q.wajibDiisi ? ' <span class="text-rose-500">*</span>' : ""}</h2>
+    ${sub ? `<p class="text-xs text-slate-500 mb-3">${sub}</p>` : '<div class="mb-3"></div>'}${body}</section>`;
+      }
+
+      function render() {
+        const s = steps[cur],
+          card = $("card");
+        const wajib = s.items.some((q) => q.wajibDiisi);
+        card.classList.remove("animate-fadeInUp");
+        void card.offsetWidth;
+        card.classList.add("animate-fadeInUp");
+        card.innerHTML = `<div class="flex items-center justify-between mb-5">
+      <div class="flex items-center gap-2"><div class="w-7 h-7 rounded-lg bg-emerald-500 text-white font-bold text-xs flex items-center justify-center shadow-md shadow-emerald-500/20">${String(cur + 1).padStart(2, "0")}</div>
+      <span class="text-xs font-bold text-emerald-700 uppercase tracking-wider">${esc(s.section)}</span></div>
+      ${wajib ? '<span class="text-[11px] font-bold bg-rose-50 text-rose-600 px-2.5 py-1 rounded-md border border-rose-100">* Wajib Diisi</span>' : '<span class="text-[11px] font-bold bg-slate-100 text-slate-500 px-2.5 py-1 rounded-md">Opsional</span>'}</div>
+    ${s.items.map(qHtml).join("")}`;
+        s.items.forEach(limitMax);
+        $("err").classList.add("hidden");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        refresh();
+      }
+
+      // ---------- input ----------
+      function limitMax(q) {
+        if (!q.maksimalPilihan || !q.bolehPilihLebihDariSatu) return;
+        const boxes = [...document.querySelectorAll(`input[name="q${q.id}"]`)];
+        const full = boxes.filter((b) => b.checked).length >= q.maksimalPilihan;
+        boxes.forEach((b) => {
+          b.disabled = full && !b.checked;
+        });
+      }
+
+      $("card").addEventListener("input", (e) => {
+        const t = e.target,
+          id = t.dataset.q;
+        if (!id) return;
+        const q = steps[cur].items.find((x) => x.id == id);
+        if (t.dataset.k === "other") other[id] = t.value;
+        else if (t.dataset.k === "text") ans[id] = t.value;
+        else if (t.dataset.k === "opt") {
+          if (q.bolehPilihLebihDariSatu) {
+            ans[id] = [...document.querySelectorAll(`input[name="q${id}"]:checked`)].map((b) => b.value);
+            limitMax(q);
+          } else ans[id] = t.value;
+        }
+        refresh();
+      });
+
+      function empty(v) {
+        return Array.isArray(v) ? !v.length : !String(v ?? "").trim();
+      }
+
+      function stepValid(i) {
+        return steps[i].items.every((q) => {
+          if (!q.wajibDiisi) return true;
+          const a = ans[q.id];
+          if (empty(a)) return false;
+          const pakaiLain = Array.isArray(a) ? a.includes(LAIN) : a === LAIN;
+          return !(pakaiLain && empty(other[q.id]));
+        });
+      }
+
+      function refresh() {
+        const n = steps.length,
+          last = cur === n - 1;
+        $("pct").textContent = Math.round(((cur + 1) / n) * 100) + "%";
+        $("title").textContent = steps[cur].section;
+        $("line").style.width = (n > 1 ? (cur / (n - 1)) * 100 : 0) + "%";
+        $("prev").classList.toggle("hidden", cur === 0);
+        $("next").disabled = sending || !stepValid(cur);
+        $("next").innerHTML = sending ? "Mengirim..." : last ? "Kirim Jawaban &rarr;" : "Lanjut &rarr;";
+        steps.forEach((_, i) => {
+          const sm = $("n" + i).dataset.sm === "1",
+            sz = sm ? "w-6 h-6 text-[10px]" : "w-9 h-9 text-xs";
+          const k =
+            i === cur
+              ? "bg-emerald-500 text-white ring-4 ring-emerald-100 shadow-lg shadow-emerald-500/30 scale-110"
+              : i < cur || stepValid(i)
+                ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
+                : "bg-white border-2 border-slate-300 text-slate-400";
+          $("n" + i).className = `relative z-10 ${sz} rounded-full font-extrabold flex items-center justify-center transition-all duration-300 cursor-pointer ${k}`;
+        });
+      }
+
+      function goTo(i) {
+        if (sending) return;
+        if (i > cur) for (let k = 0; k < i; k++) if (!stepValid(k)) return;
+        cur = i;
+        render();
+      }
+
+      $("prev").onclick = () => goTo(cur - 1);
+      $("next").onclick = () => {
+        if (!stepValid(cur) || sending) return;
+        cur === steps.length - 1 ? submit() : goTo(cur + 1);
+      };
+
+      // ---------- kirim ke Google Sheet ----------
+      function payload() {
+        const jawaban = {};
+        steps.forEach((s) =>
+          s.items.forEach((q) => {
+            let a = ans[q.id];
+            if (empty(a)) return;
+            const fix = (v) => (v === LAIN ? `${LAIN}: ${(other[q.id] || "").trim()}` : v);
+            jawaban[q.id] = Array.isArray(a) ? a.map(fix) : q.type === "isian" ? a.trim() : fix(a);
+          }),
+        );
+        return jawaban;
+      }
+
+      async function submit() {
+        sending = true;
+        refresh();
+        $("err").classList.add("hidden");
+        try {
+          const r = await fetch(API_URL, {
+            method: "POST",
+            headers: { "Content-Type": "text/plain;charset=utf-8" }, // tanpa preflight CORS
+            body: JSON.stringify({ key: API_KEY, resource: "jawaban", action: "create", data: { jawaban: payload() } }),
+          });
+          const j = await r.json();
+          if (!j.ok) throw Object.assign(new Error(j.error || "Gagal mengirim."), { details: j.details });
+          $("nav").classList.add("hidden");
+          $("nodes").classList.add("opacity-40");
+          $("card").innerHTML = `<div class="text-center py-10 space-y-3"><div class="text-5xl">&#10003;</div>
+      <h2 class="text-lg font-extrabold text-slate-800">Terima kasih!</h2>
+      <p class="text-sm text-slate-500">Jawaban Anda berhasil dikirim.</p></div>`;
+        } catch (e) {
+          const d = (e.details || []).map((x) => `<li>${esc(x)}</li>`).join("");
+          $("err").innerHTML = `<b>${esc(e.message)}</b>${d ? `<ul class="list-disc ml-5 mt-1">${d}</ul>` : ""}`;
+          $("err").classList.remove("hidden");
+        }
+        sending = false;
+        refresh();
+      }
+
+      window.addEventListener("DOMContentLoaded", load);
+    </script>
+  </body>
+</html>
