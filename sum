@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hasil Survei Kebutuhan IAT</title>
+    <meta name="robots" content="noindex" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <style>
+      body {
+        font-family: "Plus Jakarta Sans", Inter, sans-serif;
+      }
+    </style>
+  </head>
+  <body class="bg-[#f4f8f6] text-slate-700 antialiased min-h-screen px-4 sm:px-6 py-8">
+    <div class="max-w-6xl mx-auto">
+      <header class="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <div>
+          <h1 class="text-xl font-extrabold text-slate-800">Hasil Survei Kebutuhan IAT</h1>
+          <p id="sub" class="text-xs text-slate-500">Memuat data...</p>
+        </div>
+        <div class="flex gap-2">
+          <button id="reload" class="px-4 py-2 rounded-xl border border-slate-200 bg-white text-sm font-bold hover:bg-slate-50">Muat ulang</button>
+          <button id="logout" class="hidden px-4 py-2 rounded-xl border border-slate-200 bg-white text-sm font-bold hover:bg-slate-50">Keluar</button>
+        </div>
+      </header>
+
+      <!-- login / error -->
+      <div id="gate" class="hidden max-w-sm mx-auto bg-white rounded-3xl p-6 shadow-xl border border-emerald-100 space-y-3">
+        <p id="gate-msg" class="text-sm text-slate-600"></p>
+        <input id="key" type="password" placeholder="Masukkan API key" class="w-full border border-slate-200 rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-emerald-200" />
+        <button id="login" class="w-full py-3 rounded-xl bg-emerald-600 text-white font-bold text-sm">Buka hasil</button>
+      </div>
+
+      <div id="main" class="hidden">
+        <div class="flex gap-2 mb-5">
+          <button data-tab="sum" class="tab px-5 py-2.5 rounded-xl text-sm font-bold">Ringkasan</button>
+          <button data-tab="tbl" class="tab px-5 py-2.5 rounded-xl text-sm font-bold">Tabel Jawaban</button>
+        </div>
+
+        <section id="sum" class="space-y-6"></section>
+
+        <section id="tbl" class="hidden">
+          <div class="flex flex-wrap items-center gap-2 mb-3">
+            <input id="q" placeholder="Cari di semua jawaban..." class="flex-1 min-w-[200px] border border-slate-200 rounded-xl p-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-200 bg-white" />
+            <button id="csv" class="px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold">Unduh CSV</button>
+          </div>
+          <div class="bg-white rounded-2xl border border-slate-200 overflow-auto max-h-[70vh]">
+            <table class="text-xs min-w-full">
+              <thead id="thead" class="sticky top-0 bg-slate-800 text-white"></thead>
+              <tbody id="tbody"></tbody>
+            </table>
+          </div>
+          <div class="flex items-center justify-between mt-3 text-sm">
+            <span id="info" class="text-slate-500"></span>
+            <div class="flex gap-2">
+              <button id="pv" class="px-4 py-2 rounded-xl border border-slate-200 bg-white font-bold disabled:opacity-40">&larr;</button>
+              <button id="nx" class="px-4 py-2 rounded-xl border border-slate-200 bg-white font-bold disabled:opacity-40">&rarr;</button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <script>
+      // ====== tempel URL Web App Apps Script (berakhiran /exec) ======
+      const API_URL = "https://script.google.com/macros/s/AKfycbyxPBKGgwpfxB-4ugfuUrD4ZxUF3yl1iAJ2FO87ErDoHBK2NoNKn3xdZA1BDDOeiKdH/exec";
+
+      const $ = (id) => document.getElementById(id);
+      const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+      const fmt = (t) => (t ? new Date(t).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" }) : "-");
+      const cell = (v) => (Array.isArray(v) ? v.join(" | ") : (v ?? ""));
+      let KEY = sessionStorage.getItem("survei_key") || "";
+      let sum = null,
+        rows = [],
+        view = [],
+        page = 0,
+        PER = 20;
+
+      async function call(p, post) {
+        if (API_URL.startsWith("PASTE")) throw new Error("API_URL belum diisi di res.html.");
+        const r = post ? await fetch(API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ ...p, key: KEY }) }) : await fetch(API_URL + "?" + new URLSearchParams({ ...p, key: KEY }));
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error || "Permintaan gagal.");
+        return j.data;
+      }
+
+      function gate(msg) {
+        $("main").classList.add("hidden");
+        $("gate").classList.remove("hidden");
+        $("gate-msg").textContent = msg;
+        $("sub").textContent = "Akses dibatasi";
+      }
+
+      async function load() {
+        $("sub").textContent = "Memuat data...";
+        try {
+          sum = await call({ action: "summary" });
+          rows = [];
+          for (let off = 0; ; ) {
+            const r = await call({ resource: "jawaban", limit: 1000, offset: off, urut: "desc" });
+            rows.push(...r.items);
+            off += r.items.length;
+            if (!r.items.length || off >= r.total) break;
+          }
+          $("gate").classList.add("hidden");
+          $("main").classList.remove("hidden");
+          $("logout").classList.toggle("hidden", !KEY);
+          $("sub").textContent = `${sum.totalResponden} responden - terakhir masuk ${fmt(sum.terakhir)}`;
+          drawSummary();
+          drawTable(true);
+        } catch (e) {
+          if (/key/i.test(e.message)) gate(KEY ? "API key salah. Coba lagi." : "Halaman ini butuh API key.");
+          else gate(e.message);
+        }
+      }
+
+      // ---------- ringkasan ----------
+      function bars(o) {
+        const tot = o.terjawab || 1;
+        return o.opsi
+          .map((x) => {
+            const pct = Math.round((x.jumlah / tot) * 100);
+            return `<div class="mb-2"><div class="flex justify-between text-xs mb-1"><span class="font-semibold">${esc(x.label)}</span><span class="text-slate-500">${x.jumlah} (${pct}%)</span></div>
+      <div class="h-2.5 bg-slate-100 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full" style="width:${pct}%"></div></div></div>`;
+          })
+          .join("");
+      }
+
+      function qCard(o) {
+        let body = "";
+        if (o.type === "isian") {
+          const t = o.teks || [];
+          body = t.length
+            ? `<ul class="space-y-1.5 text-sm">${t
+                .slice(0, 5)
+                .map((x) => `<li class="bg-slate-50 rounded-lg px-3 py-2">${esc(x)}</li>`)
+                .join("")}</ul>
+      ${
+        t.length > 5
+          ? `<details class="mt-2"><summary class="text-xs font-bold text-emerald-700 cursor-pointer">Lihat ${t.length - 5} jawaban lainnya</summary><ul class="space-y-1.5 text-sm mt-2">${t
+              .slice(5)
+              .map((x) => `<li class="bg-slate-50 rounded-lg px-3 py-2">${esc(x)}</li>`)
+              .join("")}</ul></details>`
+          : ""
+      }`
+            : '<p class="text-xs text-slate-400">Belum ada jawaban.</p>';
+        } else {
+          body = bars(o);
+          if (o.lainnya && o.lainnya.length)
+            body += `<details class="mt-2"><summary class="text-xs font-bold text-emerald-700 cursor-pointer">Jawaban "Lainnya" (${o.lainnya.length})</summary><ul class="text-sm mt-2 space-y-1">${o.lainnya.map((x) => `<li class="bg-slate-50 rounded-lg px-3 py-1.5">${esc(x)}</li>`).join("")}</ul></details>`;
+        }
+        const rata = o.type === "skala_likert" && o.rata != null ? `<span class="shrink-0 text-xs font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg px-2 py-1">Rata-rata ${o.rata}/5</span>` : "";
+        return `<div class="bg-white rounded-2xl border border-slate-200 p-5">
+    <div class="flex justify-between gap-3 mb-3"><h3 class="text-sm font-bold text-slate-800">${o.id}. ${esc(o.soal)}</h3>${rata}</div>
+    ${body}<p class="text-[11px] text-slate-400 mt-2">${o.terjawab} dari ${sum.totalResponden} menjawab</p></div>`;
+      }
+
+      function drawSummary() {
+        const likert = sum.soal.filter((s) => s.type === "skala_likert" && s.rata != null).sort((a, b) => b.rata - a.rata);
+        let html = `<div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+    <div class="bg-white rounded-2xl border border-slate-200 p-4"><p class="text-xs text-slate-500">Responden</p><p class="text-2xl font-extrabold text-emerald-700">${sum.totalResponden}</p></div>
+    <div class="bg-white rounded-2xl border border-slate-200 p-4"><p class="text-xs text-slate-500">Jumlah soal</p><p class="text-2xl font-extrabold text-emerald-700">${sum.soal.length}</p></div>
+    <div class="bg-white rounded-2xl border border-slate-200 p-4 col-span-2 sm:col-span-1"><p class="text-xs text-slate-500">Kebutuhan tertinggi (Likert)</p><p class="text-sm font-bold text-slate-800">${likert[0] ? esc(likert[0].soal.replace(/^Seberapa Anda membutuhkan /, "")) + " - " + likert[0].rata : "-"}</p></div></div>`;
+        let kat = null;
+        sum.soal.forEach((o) => {
+          if (o.kategori !== kat) {
+            kat = o.kategori;
+            html += `<h2 class="text-xs font-extrabold uppercase tracking-wider text-emerald-700 pt-4">${esc(kat)}</h2>`;
+          }
+          html += qCard(o);
+        });
+        $("sum").innerHTML = html;
+      }
+
+      // ---------- tabel ----------
+      function drawTable(reset) {
+        const kw = $("q").value.trim().toLowerCase();
+        view = kw ? rows.filter((r) => (r._t ??= (r.idResponden + " " + Object.values(r.jawaban).map(cell).join(" ")).toLowerCase()).includes(kw)) : rows;
+        if (reset) page = 0;
+        const maxPage = Math.max(0, Math.ceil(view.length / PER) - 1);
+        page = Math.min(page, maxPage);
+        const th = "px-3 py-2 text-left font-bold whitespace-nowrap";
+        $("thead").innerHTML = `<tr><th class="${th}">No</th><th class="${th}">Waktu</th>` + sum.soal.map((s) => `<th class="${th}" title="${esc(s.soal)}">S${s.id}</th>`).join("") + `<th class="${th}">Aksi</th></tr>`;
+        const slice = view.slice(page * PER, page * PER + PER);
+        $("tbody").innerHTML =
+          slice
+            .map(
+              (r, i) =>
+                `<tr class="border-t border-slate-100 hover:bg-emerald-50/40">
+    <td class="px-3 py-2">${page * PER + i + 1}</td><td class="px-3 py-2 whitespace-nowrap">${fmt(r.timestamp)}</td>` +
+                sum.soal.map((s) => `<td class="px-3 py-2 max-w-[260px] truncate" title="${esc(cell(r.jawaban[s.id]))}">${esc(cell(r.jawaban[s.id]))}</td>`).join("") +
+                `<td class="px-3 py-2"><button data-del="${esc(r.idResponden)}" class="text-rose-600 font-bold hover:underline">Hapus</button></td></tr>`,
+            )
+            .join("") || `<tr><td colspan="${sum.soal.length + 3}" class="px-3 py-6 text-center text-slate-400">Tidak ada data.</td></tr>`;
+        $("info").textContent = `${view.length} baris - halaman ${page + 1}/${maxPage + 1}`;
+        $("pv").disabled = page === 0;
+        $("nx").disabled = page >= maxPage;
+      }
+
+      function csv() {
+        const q = (v) => '"' + String(v ?? "").replace(/"/g, '""') + '"';
+        const out = [["Timestamp", "ID Responden", ...sum.soal.map((s) => `${s.id}. ${s.soal}`)].map(q).join(",")];
+        view.forEach((r) => out.push([r.timestamp, r.idResponden, ...sum.soal.map((s) => cell(r.jawaban[s.id]))].map(q).join(",")));
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(new Blob(["\ufeff" + out.join("\n")], { type: "text/csv;charset=utf-8" }));
+        a.download = "jawaban-survei.csv";
+        a.click();
+      }
+
+      // ---------- event ----------
+      function setTab(t) {
+        $("sum").classList.toggle("hidden", t !== "sum");
+        $("tbl").classList.toggle("hidden", t !== "tbl");
+        document.querySelectorAll(".tab").forEach((b) => {
+          b.className = "tab px-5 py-2.5 rounded-xl text-sm font-bold " + (b.dataset.tab === t ? "bg-emerald-600 text-white shadow" : "bg-white border border-slate-200 text-slate-600");
+        });
+      }
+      document.querySelectorAll(".tab").forEach((b) => (b.onclick = () => setTab(b.dataset.tab)));
+      $("q").oninput = () => drawTable(true);
+      $("pv").onclick = () => {
+        page--;
+        drawTable();
+      };
+      $("nx").onclick = () => {
+        page++;
+        drawTable();
+      };
+      $("csv").onclick = csv;
+      $("reload").onclick = load;
+      $("login").onclick = () => {
+        KEY = $("key").value.trim();
+        sessionStorage.setItem("survei_key", KEY);
+        load();
+      };
+      $("key").onkeydown = (e) => {
+        if (e.key === "Enter") $("login").click();
+      };
+      $("logout").onclick = () => {
+        KEY = "";
+        sessionStorage.removeItem("survei_key");
+        gate("Anda sudah keluar.");
+      };
+      $("tbody").onclick = async (e) => {
+        const id = e.target.dataset.del;
+        if (!id || !confirm("Hapus jawaban ini secara permanen?")) return;
+        try {
+          await call({ resource: "jawaban", action: "delete", id }, true);
+          await load();
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+
+      setTab("sum");
+      load();
+    </script>
+  </body>
+</html>
